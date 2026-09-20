@@ -6,9 +6,14 @@ import { exec } from 'node:child_process'
 import { promisify } from 'node:util'
 import { cwd } from 'node:process'
 import { stat } from 'node:fs/promises'
-import {PublishOptions} from '../shared/types'
+import { PublishOptions } from '../shared/types'
+import http from 'node:http'
+import { basename } from 'node:path'
 
 const execAsync = promisify(exec)
+const GITHUB_CLIENT_ID = import.meta.env.MAIN_VITE_GITHUB_CLIENT_ID || ''
+const GITHUB_CLIENT_SECRET = import.meta.env.MAIN_VITE_GITHUB_CLIENT_SECRET || ''
+
 
 function createWindow(): void {
   // Create the browser window.
@@ -58,6 +63,8 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
+  // console.log('OAuth Client ID loaded:', GITHUB_CLIENT_ID)
+  // console.log('OAuth Client Secret loaded:', GITHUB_CLIENT_SECRET ? 'YES' : 'NO')
   // git operations
   ipcMain.handle('git:version', async () => {
     const { stdout } = await execAsync('git --version')
@@ -117,7 +124,7 @@ app.whenReady().then(() => {
   })
 
   //login Github
-  ipcMain.handle('github:login', async (_event, token: string) => {
+  ipcMain.handle('github:token-login', async (_event, token: string) => {
     try {
       const response = await fetch('https://api.github.com/user', {
         headers: {
@@ -135,13 +142,84 @@ app.whenReady().then(() => {
     }
   })
 
-  createWindow()
+  ipcMain.handle('github:oauth-login', async () => {
+    return new Promise((resolve) => {
+      const server = http.createServer(async (req, res) => {
+        if (req.url && req.url.startsWith('/callback')) {
+          const urlObj = new URL(req.url, 'http://localhost:54321')
+          const code = urlObj.searchParams.get('code')
+          res.writeHead(200, { 'Content-Type': 'text/html' })
+          res.end('<h1>Success!</h1><p>You can close this tab and return to Gitpub.</p>')
+          server.close()
+          if (!code) {
+            resolve({ success: false, error: 'No code returned from Github !' })
+            return
+          }
+          try {
+            const tokenResponse = await fetch('https://github.com/login/oauth/access_token', {
+              method: 'POST',
+              headers: {
+                Accept: 'application/json',
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                client_id: GITHUB_CLIENT_ID,
+                client_secret: GITHUB_CLIENT_SECRET,
+                code: code
+              })
+            })
+            const tokenData = await tokenResponse.json()
 
-  app.on('activate', function () {
-    // On macOS it's common to re-create a window in the app when the
-    // dock icon is clicked and there are no other windows open.
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+            if (!tokenData.access_token) {
+              resolve({ success: false, error: tokenData.error_description || 'OAuth exchange failed!' })
+              return
+            }
+            const response = await fetch('https://api.github.com/user', {
+              headers: {
+                Authorization: `Bearer ${tokenData.access_token}`,
+                'User-Agent': 'Gitpub-App'
+              }
+            })
+
+            const userData = await response.json()
+            userData ? resolve({ success: true, token: tokenData.access_token, user: userData }) : resolve({ success: false, error: 'Failed to fetch user data !' })
+
+
+          } catch (error: any) {
+            resolve({ success: false, error: error.message || 'OAuth exchange failed !' })
+          }
+        }
+
+      })
+      server.listen(54321, () => {
+        shell.openExternal(`https://github.com/login/oauth/authorize?client_id=${GITHUB_CLIENT_ID}&scope=repo,user&prompt=consent`)
+      })
+    })
   })
+
+  ipcMain.handle('git:clone', async (_event, repoUrl: string, targetDirectory: string, token?: string) => {
+    try {
+      const cleanUrl = repoUrl.endsWith('.git') ? repoUrl.slice(0, -4) : repoUrl
+      const projectName = basename(cleanUrl) || 'project'
+      let finalUrl = repoUrl.trim()
+      if (token && repoUrl.startsWith('https://')) {
+        finalUrl = finalUrl.replace('https://', `https://${token}@`)
+      }
+      await execAsync(`git -c credential.helper= clone ${finalUrl}`, { cwd: targetDirectory })
+      return { success: true, projectName, targetDirectory }
+    } catch (error: any) {
+      return { success: false, error: error.message || 'Failed to clone, Make sure that you have access rights and that your link is valid !' }
+    }
+  })
+
+  createWindow()
+})
+
+
+app.on('activate', function () {
+  // On macOS it's common to re-create a window in the app when the
+  // dock icon is clicked and there are no other windows open.
+  if (BrowserWindow.getAllWindows().length === 0) createWindow()
 })
 
 // Quit when all windows are closed, except on macOS. There, it's common

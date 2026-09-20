@@ -1,0 +1,42 @@
+.sidebar{
+    display: flex;
+    flex-direction: column;
+    width: 25%;
+    margin: 0.5rem 1.5rem ;
+    justify-content: space-between;
+}
+
+
+.githubVersion{
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.githubLogo{
+    width: 100%;
+    max-width: 2rem;
+}
+
+.sidebar_logo{
+    display: flex;
+    flex-direction: row;
+    justify-content: center;
+    align-items: center;
+    gap: 0.4rem;
+    width: 5rem;
+    font-size: 1.4rem;
+}
+
+.sidebar_logo_img{
+    width: 100%;
+    max-width: 50% ;
+}
+
+.sidebarOptions{
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    height: 60%;
+}

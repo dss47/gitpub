@@ -11,3 +11,8 @@ export interface PublishOptions {
   token: string
   username: string
 }
+
+export interface ClonedRepository {
+  name: string
+  target: string
+}
